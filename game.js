@@ -33,12 +33,14 @@ scene.add(levelRoot);
 const pathMaterial = new THREE.MeshStandardMaterial({
   color: 0xf5f0e7,
   roughness: 0.8,
-  metalness: 0
+  metalness: 0,
+  side: THREE.DoubleSide
 });
 const railMaterial = new THREE.MeshStandardMaterial({
   color: 0x292a2c,
   roughness: 0.88,
-  metalness: 0
+  metalness: 0,
+  side: THREE.DoubleSide
 });
 const ballMaterial = new THREE.MeshStandardMaterial({
   color: 0xd83b38,
@@ -47,11 +49,11 @@ const ballMaterial = new THREE.MeshStandardMaterial({
 });
 
 const WORLD_UP = new THREE.Vector3(0, 1, 0);
-const TRACK_WIDTH = 1.08;
-const TRACK_THICKNESS = 0.3;
-const RAIL_WIDTH = 0.09;
-const RAIL_HEIGHT = 0.2;
-const BALL_RADIUS = 0.37;
+const TRACK_WIDTH = 1.28;
+const TRACK_THICKNESS = 0.24;
+const RAIL_HEIGHT = 0.36;
+const BALL_RADIUS = 0.35;
+const TRACK_SEGMENTS = 220;
 
 const levels = [
   {
@@ -114,7 +116,8 @@ let endTangent = new THREE.Vector3(1, 0, 0);
 let ballMesh = null;
 let ballBody = null;
 let physicsWorld = null;
-let physicsMaterial = null;
+let trackPhysicsMaterial = null;
+let ballPhysicsMaterial = null;
 let ballState = 'waiting';
 let alignmentHold = 0;
 let solved = false;
@@ -132,8 +135,9 @@ function cameraAxisForYaw(targetYaw) {
   ).normalize();
 }
 
-function smoothstep(t) {
-  return t * t * (3 - 2 * t);
+function smootherstep(t) {
+  const x = THREE.MathUtils.clamp(t, 0, 1);
+  return x * x * x * (x * (x * 6 - 15) + 10);
 }
 
 function makeFrame(tangent) {
@@ -150,42 +154,50 @@ function makeFrame(tangent) {
   return { tangent: t, right, normal };
 }
 
+class PerspectiveRoute extends THREE.Curve {
+  constructor(level) {
+    super();
+    this.level = level;
+    this.forward = new THREE.Vector3(
+      Math.cos(level.forwardAngle),
+      0,
+      Math.sin(level.forwardAngle)
+    ).normalize();
+    this.axis = cameraAxisForYaw(level.targetYaw);
+    this.totalBaseLength = level.inLength + level.bridgeLength + level.outLength;
+
+    const origin = new THREE.Vector3(0, 0, 0);
+    this.jointA = origin.clone().addScaledVector(this.forward, -level.bridgeLength * 0.5);
+    this.bridgeBaseEnd = origin.clone().addScaledVector(this.forward, level.bridgeLength * 0.5);
+    this.start = this.jointA.clone().addScaledVector(this.forward, -level.inLength);
+    this.jointB = this.bridgeBaseEnd.clone().addScaledVector(this.axis, level.depth);
+    this.end = this.jointB.clone().addScaledVector(this.forward, level.outLength);
+    this.arcLengthDivisions = 1600;
+  }
+
+  getPoint(t, target = new THREE.Vector3()) {
+    const level = this.level;
+    const d = THREE.MathUtils.clamp(t, 0, 1) * this.totalBaseLength;
+
+    if (d <= level.inLength) {
+      return target.copy(this.start).addScaledVector(this.forward, d);
+    }
+
+    if (d <= level.inLength + level.bridgeLength) {
+      const s = (d - level.inLength) / level.bridgeLength;
+      return target
+        .copy(this.jointA)
+        .addScaledVector(this.forward, level.bridgeLength * s)
+        .addScaledVector(this.axis, level.depth * smootherstep(s));
+    }
+
+    const outDistance = d - level.inLength - level.bridgeLength;
+    return target.copy(this.jointB).addScaledVector(this.forward, outDistance);
+  }
+}
+
 function buildRoute(level) {
-  const forward = new THREE.Vector3(
-    Math.cos(level.forwardAngle),
-    0,
-    Math.sin(level.forwardAngle)
-  ).normalize();
-  const axis = cameraAxisForYaw(level.targetYaw);
-  const origin = new THREE.Vector3(0, 0, 0);
-
-  const jointA = origin.clone().addScaledVector(forward, -level.bridgeLength * 0.5);
-  const bridgeBaseEnd = origin.clone().addScaledVector(forward, level.bridgeLength * 0.5);
-  const start = jointA.clone().addScaledVector(forward, -level.inLength);
-  const jointB = bridgeBaseEnd.clone().addScaledVector(axis, level.depth);
-  const end = jointB.clone().addScaledVector(forward, level.outLength);
-
-  const points = [];
-  const straightSamples = 18;
-  const bridgeSamples = 44;
-
-  for (let i = 0; i <= straightSamples; i += 1) {
-    points.push(start.clone().lerp(jointA, i / straightSamples));
-  }
-
-  for (let i = 1; i <= bridgeSamples; i += 1) {
-    const s = i / bridgeSamples;
-    const base = jointA.clone().lerp(bridgeBaseEnd, s);
-    base.addScaledVector(axis, level.depth * smoothstep(s));
-    points.push(base);
-  }
-
-  for (let i = 1; i <= straightSamples; i += 1) {
-    points.push(jointB.clone().lerp(end, i / straightSamples));
-  }
-
-  const curve = new THREE.CatmullRomCurve3(points, false, 'centripetal');
-  curve.arcLengthDivisions = 800;
+  const curve = new PerspectiveRoute(level);
   curve.updateArcLengths();
   return curve;
 }
@@ -196,96 +208,156 @@ function createPhysicsWorld() {
   });
   world.allowSleep = true;
   world.broadphase = new CANNON.SAPBroadphase(world);
-  world.solver.iterations = 12;
-  world.solver.tolerance = 0.001;
+  world.solver.iterations = 18;
+  world.solver.tolerance = 0.0005;
 
-  physicsMaterial = new CANNON.Material('track');
-  const contact = new CANNON.ContactMaterial(physicsMaterial, physicsMaterial, {
-    friction: 0.32,
-    restitution: 0.015,
+  trackPhysicsMaterial = new CANNON.Material('track');
+  ballPhysicsMaterial = new CANNON.Material('ball');
+
+  const contact = new CANNON.ContactMaterial(trackPhysicsMaterial, ballPhysicsMaterial, {
+    friction: 0.16,
+    restitution: 0,
     contactEquationStiffness: 1e8,
-    contactEquationRelaxation: 3
+    contactEquationRelaxation: 3,
+    frictionEquationStiffness: 1e7,
+    frictionEquationRelaxation: 3
   });
   world.addContactMaterial(contact);
-  world.defaultContactMaterial.friction = 0.32;
-  world.defaultContactMaterial.restitution = 0.015;
+  world.defaultContactMaterial.friction = 0.16;
+  world.defaultContactMaterial.restitution = 0;
+
   return world;
 }
 
-function toCannonQuaternion(q) {
-  return new CANNON.Quaternion(q.x, q.y, q.z, q.w);
-}
-
-function addStaticBox(position, quaternion, halfExtents) {
+function addStaticTrimesh(vertices, indices) {
+  const shape = new CANNON.Trimesh(vertices, indices);
   const body = new CANNON.Body({
     mass: 0,
-    material: physicsMaterial,
-    shape: new CANNON.Box(new CANNON.Vec3(
-      halfExtents.x,
-      halfExtents.y,
-      halfExtents.z
-    ))
+    material: trackPhysicsMaterial
   });
-  body.position.set(position.x, position.y, position.z);
-  body.quaternion.copy(toCannonQuaternion(quaternion));
+  body.addShape(shape);
   physicsWorld.addBody(body);
+  return body;
 }
 
-function createTrack(curve) {
-  const segments = 92;
+function sampleRoute(curve, segments = TRACK_SEGMENTS) {
+  const samples = [];
 
-  for (let i = 0; i < segments; i += 1) {
-    const t0 = i / segments;
-    const t1 = (i + 1) / segments;
-    const p0 = curve.getPointAt(t0);
-    const p1 = curve.getPointAt(t1);
-    const mid = p0.clone().add(p1).multiplyScalar(0.5);
-    const direction = p1.clone().sub(p0);
-    const length = direction.length();
-    const frame = makeFrame(direction);
+  for (let i = 0; i <= segments; i += 1) {
+    const t = i / segments;
+    const point = curve.getPointAt(t);
+    const tangent = curve.getTangentAt(t).normalize();
+    const frame = makeFrame(tangent);
+    samples.push({ point, tangent, ...frame });
+  }
 
-    const matrix = new THREE.Matrix4().makeBasis(
-      frame.right,
-      frame.normal,
-      frame.tangent
+  return samples;
+}
+
+function createDeck(samples) {
+  const positions = [];
+  const visualIndices = [];
+  const collisionVertices = [];
+  const collisionIndices = [];
+
+  for (const sample of samples) {
+    const { point, right, normal } = sample;
+    const halfWidth = TRACK_WIDTH * 0.5;
+
+    const leftTop = point.clone().addScaledVector(right, -halfWidth);
+    const rightTop = point.clone().addScaledVector(right, halfWidth);
+    const leftBottom = leftTop.clone().addScaledVector(normal, -TRACK_THICKNESS);
+    const rightBottom = rightTop.clone().addScaledVector(normal, -TRACK_THICKNESS);
+
+    for (const p of [leftTop, rightTop, leftBottom, rightBottom]) {
+      positions.push(p.x, p.y, p.z);
+    }
+
+    collisionVertices.push(
+      leftTop.x, leftTop.y, leftTop.z,
+      rightTop.x, rightTop.y, rightTop.z
     );
-    const quaternion = new THREE.Quaternion().setFromRotationMatrix(matrix);
+  }
 
-    const deckLength = length * 1.12;
-    const deckPosition = mid.clone().addScaledVector(frame.normal, -TRACK_THICKNESS * 0.5);
-    const deck = new THREE.Mesh(
-      new THREE.BoxGeometry(TRACK_WIDTH, TRACK_THICKNESS, deckLength),
-      pathMaterial
-    );
-    deck.quaternion.copy(quaternion);
-    deck.position.copy(deckPosition);
-    levelRoot.add(deck);
-    addStaticBox(
-      deckPosition,
-      quaternion,
-      new THREE.Vector3(TRACK_WIDTH * 0.5, TRACK_THICKNESS * 0.5, deckLength * 0.5)
+  for (let i = 0; i < samples.length - 1; i += 1) {
+    const a = i * 4;
+    const b = (i + 1) * 4;
+
+    visualIndices.push(
+      a, b, b + 1,
+      a, b + 1, a + 1,
+
+      a + 2, b + 3, b + 2,
+      a + 2, a + 3, b + 3,
+
+      a, a + 2, b + 2,
+      a, b + 2, b,
+
+      a + 1, b + 1, b + 3,
+      a + 1, b + 3, a + 3
     );
 
-    for (const side of [-1, 1]) {
-      const railLength = length * 1.14;
-      const railPosition = mid
-        .clone()
-        .addScaledVector(frame.right, side * TRACK_WIDTH * 0.47)
-        .addScaledVector(frame.normal, RAIL_HEIGHT * 0.5);
-      const rail = new THREE.Mesh(
-        new THREE.BoxGeometry(RAIL_WIDTH, RAIL_HEIGHT, railLength),
-        railMaterial
+    const c = i * 2;
+    const d = (i + 1) * 2;
+    collisionIndices.push(
+      c, d, d + 1,
+      c, d + 1, c + 1
+    );
+  }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setIndex(visualIndices);
+  geometry.computeVertexNormals();
+
+  const mesh = new THREE.Mesh(geometry, pathMaterial);
+  levelRoot.add(mesh);
+  addStaticTrimesh(collisionVertices, collisionIndices);
+}
+
+function createRail(samples, side) {
+  const positions = [];
+  const indices = [];
+
+  for (const sample of samples) {
+    const { point, right, normal } = sample;
+    const base = point.clone().addScaledVector(right, side * TRACK_WIDTH * 0.5);
+    const top = base.clone().addScaledVector(normal, RAIL_HEIGHT);
+    positions.push(base.x, base.y, base.z, top.x, top.y, top.z);
+  }
+
+  for (let i = 0; i < samples.length - 1; i += 1) {
+    const a = i * 2;
+    const b = (i + 1) * 2;
+
+    if (side > 0) {
+      indices.push(
+        a, b, b + 1,
+        a, b + 1, a + 1
       );
-      rail.quaternion.copy(quaternion);
-      rail.position.copy(railPosition);
-      levelRoot.add(rail);
-      addStaticBox(
-        railPosition,
-        quaternion,
-        new THREE.Vector3(RAIL_WIDTH * 0.5, RAIL_HEIGHT * 0.5, railLength * 0.5)
+    } else {
+      indices.push(
+        a, b + 1, b,
+        a, a + 1, b + 1
       );
     }
   }
+
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+
+  const mesh = new THREE.Mesh(geometry, railMaterial);
+  levelRoot.add(mesh);
+  addStaticTrimesh(positions, indices);
+}
+
+function createTrack(curve) {
+  const samples = sampleRoute(curve);
+  createDeck(samples);
+  createRail(samples, -1);
+  createRail(samples, 1);
 }
 
 function clearLevel() {
@@ -302,7 +374,7 @@ function createBall() {
   const start = routeCurve.getPointAt(0);
   const startTangent = routeCurve.getTangentAt(0).normalize();
   const frame = makeFrame(startTangent);
-  const startPosition = start.clone().addScaledVector(frame.normal, BALL_RADIUS + 0.025);
+  const startPosition = start.clone().addScaledVector(frame.normal, BALL_RADIUS + 0.018);
 
   ballMesh = new THREE.Mesh(
     new THREE.SphereGeometry(BALL_RADIUS, 42, 28),
@@ -314,10 +386,10 @@ function createBall() {
   ballBody = new CANNON.Body({
     mass: 0,
     type: CANNON.Body.KINEMATIC,
-    material: physicsMaterial,
+    material: ballPhysicsMaterial,
     shape: new CANNON.Sphere(BALL_RADIUS),
-    linearDamping: 0.006,
-    angularDamping: 0.01,
+    linearDamping: 0.008,
+    angularDamping: 0.012,
     allowSleep: true
   });
   ballBody.position.set(startPosition.x, startPosition.y, startPosition.z);
@@ -329,13 +401,13 @@ function releaseBall() {
   ballBody.type = CANNON.Body.DYNAMIC;
   ballBody.mass = 1;
   ballBody.updateMassProperties();
-  ballBody.velocity.set(tangent.x * 1.55, tangent.y * 1.55, tangent.z * 1.55);
+  ballBody.velocity.set(tangent.x * 1.45, tangent.y * 1.45, tangent.z * 1.45);
   ballBody.angularVelocity.set(0, 0, 0);
   ballBody.wakeUp();
 
   ballState = 'rolling';
   rollingTime = 0;
-  status.textContent = '시점이 맞았습니다. 공은 실제 물리로 굴러갑니다. 카메라는 계속 자유롭게 돌릴 수 있습니다.';
+  status.textContent = '시점이 맞았습니다. 공은 연속된 실제 충돌면 위를 굴러갑니다. 카메라는 계속 자유롭게 돌릴 수 있습니다.';
 }
 
 function loadLevel(index) {
@@ -395,8 +467,8 @@ function projectedStraightness() {
   const end = projectToPixels(routeCurve.getPointAt(1));
   let maxDeviation = 0;
 
-  for (let i = 1; i < 28; i += 1) {
-    const p = projectToPixels(routeCurve.getPointAt(i / 28));
+  for (let i = 1; i < 36; i += 1) {
+    const p = projectToPixels(routeCurve.getPointAt(i / 36));
     maxDeviation = Math.max(maxDeviation, distanceToLine(p, start, end));
   }
 
@@ -428,7 +500,7 @@ function syncPhysics(dt) {
 
   if (ballState === 'rolling') {
     rollingTime += dt;
-    physicsWorld.step(1 / 120, dt, 4);
+    physicsWorld.step(1 / 180, dt, 8);
   }
 
   ballMesh.position.set(ballBody.position.x, ballBody.position.y, ballBody.position.z);
@@ -448,7 +520,7 @@ function syncPhysics(dt) {
   );
   const toEnd = ballPosition.clone().sub(routeEnd);
   const passedEndPlane = toEnd.dot(endTangent) > -0.35;
-  const nearEnd = ballPosition.distanceTo(routeEnd) < 1.0;
+  const nearEnd = ballPosition.distanceTo(routeEnd) < 0.95;
 
   if (rollingTime > 1 && (nearEnd || passedEndPlane)) {
     ballState = 'finished';
@@ -456,7 +528,7 @@ function syncPhysics(dt) {
     return;
   }
 
-  if (ballBody.position.y < -12) {
+  if (ballBody.position.y < -14) {
     status.textContent = '공이 통로 밖으로 떨어졌습니다. 단계를 다시 시작합니다.';
     ballState = 'failed';
     dragActive = false;
@@ -471,7 +543,7 @@ function finishLevel() {
     ballBody.velocity.set(0, 0, 0);
     ballBody.angularVelocity.set(0, 0, 0);
   }
-  status.textContent = '단계 완료. 공은 실제 연결된 통로를 따라 끝까지 굴러갔습니다.';
+  status.textContent = '단계 완료. 공은 하나의 연속된 실제 통로를 따라 끝까지 굴러갔습니다.';
 
   if (levelIndex < levels.length - 1) {
     setTimeout(() => {
