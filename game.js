@@ -55,15 +55,16 @@ const ballMaterial = new THREE.MeshStandardMaterial({ color: 0xd83b38, roughness
 const connectorMaterial = new THREE.MeshStandardMaterial({ color: 0x8bc5b5, transparent: true, opacity: 0.0, roughness: 0.5 });
 
 const levels = [
-  { name: '첫 번째 겹침', targetYaw: -0.55, start: [-5, 0, 0], joint: [-1.3, 0, 0], end: [4.5, 0, 2.7], goal: [6.1, 0, 2.7], text: '카메라를 돌려 두 길 끝을 겹쳐 보이게 만드세요.' },
-  { name: '높이의 착각', targetYaw: 0.28, start: [-5.2, -0.2, -2.2], joint: [-1.5, -0.2, -2.2], end: [3.8, 1.2, 1.4], goal: [5.6, 1.2, 1.4], text: '높이가 달라도 화면에서 맞닿으면 하나의 길입니다.' },
-  { name: '비스듬한 다리', targetYaw: 1.02, start: [-4.8, 0.6, 2.5], joint: [-1.1, 0.6, 2.5], end: [2.4, -0.3, -2.3], goal: [4.6, -0.3, -2.3], text: '길의 방향보다 화면에서 보이는 연결을 믿으세요.' },
-  { name: '엇갈린 층', targetYaw: 2.0, start: [-5.0, 1.1, -1.4], joint: [-1.6, 1.1, -1.4], end: [2.8, -0.7, 2.9], goal: [5.1, -0.7, 2.9], text: '서로 다른 층을 한 장의 그림처럼 맞춰 보세요.' },
-  { name: '마지막 시점', targetYaw: 2.82, start: [-5.3, -0.6, 2.1], joint: [-1.4, -0.6, 2.1], end: [2.9, 1.5, -2.5], goal: [5.4, 1.5, -2.5], text: '마지막 길입니다. 가장 자연스러운 한 장면을 찾아보세요.' }
+  { name: '첫 번째 겹침', targetYaw: -0.55, depth: 3.6, start: [-5, 0, 0], joint: [-1.3, 0, 0], end: [4.5, 0, 2.7], goal: [6.1, 0, 2.7], text: '카메라를 돌려 두 길 끝을 겹쳐 보이게 만드세요.' },
+  { name: '높이의 착각', targetYaw: 0.28, depth: 3.8, start: [-5.2, -0.2, -2.2], joint: [-1.5, -0.2, -2.2], end: [3.8, 1.2, 1.4], goal: [5.6, 1.2, 1.4], text: '높이가 달라도 화면에서 맞닿으면 하나의 길입니다.' },
+  { name: '비스듬한 다리', targetYaw: 1.02, depth: 4.0, start: [-4.8, 0.6, 2.5], joint: [-1.1, 0.6, 2.5], end: [2.4, -0.3, -2.3], goal: [4.6, -0.3, -2.3], text: '길의 방향보다 화면에서 보이는 연결을 믿으세요.' },
+  { name: '엇갈린 층', targetYaw: 2.0, depth: 4.2, start: [-5.0, 1.1, -1.4], joint: [-1.6, 1.1, -1.4], end: [2.8, -0.7, 2.9], goal: [5.1, -0.7, 2.9], text: '서로 다른 층을 한 장의 그림처럼 맞춰 보세요.' },
+  { name: '마지막 시점', targetYaw: 2.82, depth: 4.4, start: [-5.3, -0.6, 2.1], joint: [-1.4, -0.6, 2.1], end: [2.9, 1.5, -2.5], goal: [5.4, 1.5, -2.5], text: '마지막 길입니다. 가장 자연스러운 한 장면을 찾아보세요.' }
 ];
 
 let levelIndex = 0;
 let pathA, pathB, bridgeHint, ball, goal;
+let jointMarkers = [];
 let startPoint = new THREE.Vector3();
 let jointA = new THREE.Vector3();
 let jointB = new THREE.Vector3();
@@ -76,11 +77,23 @@ let dragActive = false;
 let previousX = 0;
 let lastTime = performance.now();
 
-function vector(v) { return new THREE.Vector3(v[0], v[1], v[2]); }
+function vector(v) {
+  return new THREE.Vector3(v[0], v[1], v[2]);
+}
 
-function endpointForTargetYaw(joint, targetYaw, depthOffset, heightOffset = 0) {
-  const horizontalForward = new THREE.Vector3(Math.sin(targetYaw), 0, Math.cos(targetYaw));
-  return joint.clone().add(horizontalForward.multiplyScalar(depthOffset)).add(new THREE.Vector3(0, heightOffset, 0));
+function cameraAxisForYaw(targetYaw) {
+  const cp = Math.cos(pitch);
+  return new THREE.Vector3(
+    Math.sin(targetYaw) * cp,
+    Math.sin(pitch),
+    Math.cos(targetYaw) * cp
+  ).normalize();
+}
+
+function endpointForTargetYaw(joint, targetYaw, depthOffset) {
+  // Orthographic 카메라에서는 시선축과 평행한 두 점이 같은 화면 좌표에 투영된다.
+  // 연결점을 목표 시점의 실제 3차원 시선축 위에 배치해 완전한 겹침이 가능하게 한다.
+  return joint.clone().add(cameraAxisForYaw(targetYaw).multiplyScalar(depthOffset));
 }
 
 function createPath(from, to, width = 1.08) {
@@ -126,6 +139,7 @@ function clearLevel() {
     if (Array.isArray(child.material)) child.material.forEach(m => m.dispose?.());
     else child.material?.dispose?.();
   }
+  jointMarkers = [];
 }
 
 function loadLevel(index) {
@@ -137,9 +151,9 @@ function loadLevel(index) {
 
   startPoint = vector(data.start);
   jointA = vector(data.joint);
+  jointB = endpointForTargetYaw(jointA, data.targetYaw, data.depth);
+
   const baseEnd = vector(data.end);
-  const desiredOffset = Math.max(4.2, jointA.distanceTo(baseEnd) * 0.78);
-  jointB = endpointForTargetYaw(jointA, data.targetYaw, desiredOffset, baseEnd.y - jointA.y);
   const direction = vector(data.goal).sub(baseEnd).setY(0).normalize();
   if (direction.lengthSq() < 0.01) direction.set(1, 0, 0);
   goalPoint = jointB.clone().add(direction.multiplyScalar(3.3));
@@ -153,12 +167,18 @@ function loadLevel(index) {
   createPillar(goalPoint);
 
   const jointMarkerGeo = new THREE.CylinderGeometry(0.24, 0.24, 0.1, 32);
-  const markerMat = new THREE.MeshStandardMaterial({ color: 0x7b7469, roughness: 0.7 });
   for (const p of [jointA, jointB]) {
-    const marker = new THREE.Mesh(jointMarkerGeo, markerMat.clone());
+    const markerMat = new THREE.MeshStandardMaterial({
+      color: 0x7b7469,
+      roughness: 0.7,
+      emissive: 0x000000,
+      emissiveIntensity: 0
+    });
+    const marker = new THREE.Mesh(jointMarkerGeo, markerMat);
     marker.position.copy(p);
     marker.position.y += 0.08;
     levelRoot.add(marker);
+    jointMarkers.push(marker);
   }
 
   bridgeHint = new THREE.Mesh(new THREE.BoxGeometry(0.8, 0.16, 1), connectorMaterial.clone());
@@ -179,7 +199,7 @@ function loadLevel(index) {
   phaseTime = 0;
   connected = false;
   solved = false;
-  yaw = data.targetYaw - 1.05;
+  yaw = data.targetYaw - 1.0;
   completion.hidden = true;
   updateCamera();
 }
@@ -205,8 +225,16 @@ function projectedDistance(a, b) {
 
 function updateConnection() {
   const px = projectedDistance(jointA, jointB);
-  const threshold = Math.max(38, Math.min(innerWidth, innerHeight) * 0.065);
-  connected = px < threshold;
+  const threshold = Math.max(42, Math.min(innerWidth, innerHeight) * 0.07);
+  connected = px <= threshold;
+
+  const proximity = THREE.MathUtils.clamp(1 - px / (threshold * 3.2), 0, 1);
+  for (const marker of jointMarkers) {
+    const scale = 1 + proximity * 0.24;
+    marker.scale.set(scale, 1, scale);
+    marker.material.emissive.setHex(connected ? 0x3b9f87 : 0x6b5525);
+    marker.material.emissiveIntensity = connected ? 0.7 : proximity * 0.32;
+  }
 
   const mid = jointA.clone().add(jointB).multiplyScalar(0.5);
   const len = jointA.distanceTo(jointB);
@@ -214,14 +242,22 @@ function updateConnection() {
   bridgeHint.position.y += 0.05;
   bridgeHint.scale.set(1, 1, len);
   bridgeHint.lookAt(jointB.x, mid.y, jointB.z);
-  bridgeHint.material.opacity = connected ? 0.22 : 0;
+  bridgeHint.material.opacity = connected ? 0.18 : 0;
 
   if (!solved && ballPhase === 'waiting') {
-    status.textContent = connected ? '연결되었습니다. 공이 건너갑니다.' : '조금 더 돌려 두 끝점을 정확히 맞춰 보세요.';
+    if (connected) {
+      status.textContent = '연결되었습니다. 공이 건너갑니다.';
+    } else if (px < threshold * 2.2) {
+      status.textContent = '거의 맞았습니다. 조금만 더 돌려 보세요.';
+    } else {
+      status.textContent = '두 회색 연결점을 화면에서 하나로 겹쳐 보세요.';
+    }
   }
 }
 
-function ease(t) { return t * t * (3 - 2 * t); }
+function ease(t) {
+  return t * t * (3 - 2 * t);
+}
 
 function moveBall(dt) {
   if (solved) return;
@@ -235,7 +271,7 @@ function moveBall(dt) {
     if (t >= 1) {
       ballPhase = 'waiting';
       phaseTime = 0;
-      status.textContent = '공이 길 끝에서 기다립니다. 시점을 맞추세요.';
+      status.textContent = '공이 길 끝에서 기다립니다. 두 회색 연결점을 겹쳐 보세요.';
     }
   } else if (ballPhase === 'waiting') {
     ball.position.copy(jointA).add(new THREE.Vector3(0, 0.43, 0));
@@ -271,7 +307,9 @@ function finishLevel() {
       loadLevel(levelIndex);
     }, 900);
   } else {
-    setTimeout(() => { completion.hidden = false; }, 650);
+    setTimeout(() => {
+      completion.hidden = false;
+    }, 650);
   }
 }
 
@@ -304,22 +342,34 @@ canvas.addEventListener('pointerdown', (e) => {
   previousX = e.clientX;
   canvas.setPointerCapture(e.pointerId);
 });
+
 canvas.addEventListener('pointermove', (e) => {
   if (!dragActive || solved || ballPhase === 'crossing' || ballPhase === 'goal') return;
   const dx = e.clientX - previousX;
   previousX = e.clientX;
   yaw -= dx * 0.008;
 });
-canvas.addEventListener('pointerup', () => { dragActive = false; });
-canvas.addEventListener('pointercancel', () => { dragActive = false; });
+
+canvas.addEventListener('pointerup', () => {
+  dragActive = false;
+});
+
+canvas.addEventListener('pointercancel', () => {
+  dragActive = false;
+});
+
 window.addEventListener('keydown', (e) => {
   if (e.key === 'ArrowLeft') yaw += 0.055;
   if (e.key === 'ArrowRight') yaw -= 0.055;
   if (e.key.toLowerCase() === 'r') loadLevel(levelIndex);
 });
+
 window.addEventListener('resize', resize);
 resetButton.addEventListener('click', () => loadLevel(levelIndex));
-againButton.addEventListener('click', () => { levelIndex = 0; loadLevel(0); });
+againButton.addEventListener('click', () => {
+  levelIndex = 0;
+  loadLevel(0);
+});
 
 resize();
 loadLevel(0);
