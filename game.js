@@ -335,8 +335,7 @@ function releaseBall() {
 
   ballState = 'rolling';
   rollingTime = 0;
-  dragActive = false;
-  status.textContent = '시점이 맞았습니다. 이제 공은 실제 경사와 중력만으로 움직입니다.';
+  status.textContent = '시점이 맞았습니다. 공은 실제 물리로 굴러갑니다. 카메라는 계속 자유롭게 돌릴 수 있습니다.';
 }
 
 function loadLevel(index) {
@@ -460,12 +459,14 @@ function syncPhysics(dt) {
   if (ballBody.position.y < -12) {
     status.textContent = '공이 통로 밖으로 떨어졌습니다. 단계를 다시 시작합니다.';
     ballState = 'failed';
+    dragActive = false;
     setTimeout(() => loadLevel(levelIndex), 850);
   }
 }
 
 function finishLevel() {
   solved = true;
+  dragActive = false;
   if (ballBody) {
     ballBody.velocity.set(0, 0, 0);
     ballBody.angularVelocity.set(0, 0, 0);
@@ -509,15 +510,19 @@ function animate(now) {
   requestAnimationFrame(animate);
 }
 
+function cameraInputAllowed() {
+  return !solved && ballState !== 'failed' && ballState !== 'finished';
+}
+
 canvas.addEventListener('pointerdown', (event) => {
-  if (solved || ballState !== 'waiting') return;
+  if (!cameraInputAllowed()) return;
   dragActive = true;
   previousX = event.clientX;
   canvas.setPointerCapture(event.pointerId);
 });
 
 canvas.addEventListener('pointermove', (event) => {
-  if (!dragActive || solved || ballState !== 'waiting') return;
+  if (!dragActive || !cameraInputAllowed()) return;
   const dx = event.clientX - previousX;
   previousX = event.clientX;
   yaw -= dx * 0.008;
@@ -532,7 +537,7 @@ canvas.addEventListener('pointercancel', () => {
 });
 
 window.addEventListener('keydown', (event) => {
-  if (ballState === 'waiting' && !solved) {
+  if (cameraInputAllowed()) {
     if (event.key === 'ArrowLeft') yaw += 0.05;
     if (event.key === 'ArrowRight') yaw -= 0.05;
   }
