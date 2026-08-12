@@ -3,53 +3,113 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-  <meta name="theme-color" content="#f3eee5">
-  <title>시점의 길</title>
-  <link rel="stylesheet" href="style.css">
+  <meta name="theme-color" content="#f5f1e8">
+  <meta name="description" content="시점, 반사, 중력, 대칭, 경로 설계 등 서로 다른 사고방식을 요구하는 웹 퍼즐 모음">
+  <title>생각의 놀이터 | 창의적 웹 퍼즐</title>
+  <link rel="stylesheet" href="arcade.css">
 </head>
 <body>
-  <main id="app">
-    <canvas id="game" aria-label="3차원 원근 착시 퍼즐 게임"></canvas>
-
-    <header class="hud">
-      <div class="brand">
-        <span class="eyebrow">PERSPECTIVE PUZZLE</span>
-        <h1>시점의 길</h1>
+  <div class="site-shell">
+    <header class="hero">
+      <div>
+        <p class="kicker">CREATIVE PUZZLE ARCADE</p>
+        <h1>생각의 놀이터</h1>
+        <p class="hero-copy">
+          같은 손놀림을 반복하는 대신, 게임마다 머리를 쓰는 방식 자체가 달라집니다.
+          빛을 꺾고, 중력을 바꾸고, 두 개의 말을 동시에 생각하고, 선과 대칭과 규칙을 다시 설계해 보세요.
+        </p>
       </div>
-      <div class="stage-box">
-        <span>단계</span>
-        <strong id="stageLabel">1 / 5</strong>
+      <div class="hero-badge" aria-label="총 8개의 게임">
+        <div><strong>8</strong><span>PLAYABLE GAMES</span></div>
       </div>
     </header>
 
-    <section class="hint" id="hint" aria-live="polite">
-      화면을 돌려 실제 3차원 경사로가 하나의 직선처럼 보이는 시점을 찾으세요.
-    </section>
-
-    <div class="status" id="status">통로의 굴곡이 사라지는 시점을 찾으세요.</div>
-
-    <div class="controls">
-      <button id="resetButton" type="button">현재 단계 다시 시작</button>
-    </div>
-
-    <div class="completion" id="completion" hidden>
-      <div class="completion-card">
-        <p class="eyebrow">COMPLETE</p>
-        <h2>모든 시점을 찾았습니다.</h2>
-        <p>길은 처음부터 끝까지 실제로 연결되어 있었고, 시점이 그 깊이를 감췄습니다.</p>
-        <button id="againButton" type="button">처음부터 다시 하기</button>
+    <main>
+      <div class="section-head">
+        <h2>게임 선택</h2>
+        <p>각 게임은 독립적인 규칙과 승리 조건을 가집니다.</p>
       </div>
-    </div>
-  </main>
 
-  <script type="importmap">
-  {
-    "imports": {
-      "three": "https://cdn.jsdelivr.net/npm/three@0.179.1/build/three.module.js",
-      "cannon-es": "https://cdn.jsdelivr.net/npm/cannon-es@0.20.0/dist/cannon-es.js"
-    }
-  }
-  </script>
-  <script type="module" src="game.js"></script>
+      <section class="game-grid" aria-label="게임 목록">
+        <button class="game-card" type="button" data-game="laser">
+          <span class="game-no">01</span>
+          <h3>빛을 접는 방</h3>
+          <p>거울 두 장만으로 광선을 목표까지 보내는 반사 퍼즐입니다. 위치와 방향을 함께 설계해야 합니다.</p>
+          <span class="game-tag">반사 · 공간 추론</span>
+        </button>
+
+        <button class="game-card" type="button" data-game="gravity">
+          <span class="game-no">02</span>
+          <h3>중력 우체국</h3>
+          <p>상자를 직접 움직일 수 없습니다. 중력의 방향을 바꿔 벽과 장애물을 이용해 목적지까지 보내세요.</p>
+          <span class="game-tag">경로 계획 · 역산</span>
+        </button>
+
+        <button class="game-card" type="button" data-game="twins">
+          <span class="game-no">03</span>
+          <h3>거울 쌍둥이</h3>
+          <p>하나의 입력이 두 말에 동시에 적용되지만 한쪽은 좌우가 반대입니다. 두 목표를 동시에 만족시켜야 합니다.</p>
+          <span class="game-tag">동시 사고 · 좌우 반전</span>
+        </button>
+
+        <button class="game-card" type="button" data-game="constellation">
+          <span class="game-no">04</span>
+          <h3>한 붓 성좌</h3>
+          <p>모든 선을 정확히 한 번씩만 통과해야 합니다. 어디서 시작할지부터 선택해야 하는 경로 퍼즐입니다.</p>
+          <span class="game-tag">그래프 · 경로 설계</span>
+        </button>
+
+        <button class="game-card" type="button" data-game="symmetry">
+          <span class="game-no">05</span>
+          <h3>대칭 복원실</h3>
+          <p>네 번의 수정만 허용됩니다. 가로 대칭과 세로 대칭을 동시에 만족하도록 깨진 무늬를 복원하세요.</p>
+          <span class="game-tag">패턴 · 제약 최적화</span>
+        </button>
+
+        <button class="game-card" type="button" data-game="shadow">
+          <span class="game-no">06</span>
+          <h3>그림자 조립소</h3>
+          <p>세 개의 서로 다른 조각을 회전하고 배치해 목표 그림자만 정확히 채우는 폴리오미노 퍼즐입니다.</p>
+          <span class="game-tag">회전 · 조합</span>
+        </button>
+
+        <button class="game-card" type="button" data-game="machine">
+          <span class="game-no">07</span>
+          <h3>규칙 제작기</h3>
+          <p>입력과 출력 사례만 보고 두 단계 연산 규칙을 역으로 찾아냅니다. 연산 순서까지 추론해야 합니다.</p>
+          <span class="game-tag">규칙 발견 · 논리</span>
+        </button>
+
+        <a class="game-card" href="perspective.html">
+          <span class="game-no">08</span>
+          <h3>시점의 길</h3>
+          <p>실제로 연결된 3차원 경사로가 특정 정사영 시점에서 평범한 직선처럼 보이는 물리 착시 퍼즐입니다.</p>
+          <span class="game-tag">3D 착시 · 실제 물리</span>
+        </a>
+      </section>
+    </main>
+
+    <footer class="site-footer">
+      모든 게임은 브라우저에서 바로 실행되며 별도의 계정이나 저장 데이터가 필요하지 않습니다.
+    </footer>
+  </div>
+
+  <dialog class="game-dialog" id="gameDialog">
+    <div class="dialog-shell">
+      <header class="dialog-head">
+        <div>
+          <p class="kicker">PUZZLE</p>
+          <h2 id="dialogTitle">게임</h2>
+          <p id="dialogDescription"></p>
+        </div>
+        <button class="close-button" id="closeGame" type="button" aria-label="게임 닫기">×</button>
+      </header>
+      <div class="game-status" id="gameStatus" aria-live="polite"></div>
+      <section class="game-surface" id="gameSurface"></section>
+      <footer class="game-actions" id="gameActions"></footer>
+    </div>
+  </dialog>
+
+  <script type="module" src="arcade.js"></script>
 </body>
 </html>
