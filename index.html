@@ -1,0 +1,54 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#f3eee5">
+  <title>시점의 길</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main id="app">
+    <canvas id="game" aria-label="3차원 원근 착시 퍼즐 게임"></canvas>
+
+    <header class="hud">
+      <div class="brand">
+        <span class="eyebrow">PERSPECTIVE PUZZLE</span>
+        <h1>시점의 길</h1>
+      </div>
+      <div class="stage-box">
+        <span>단계</span>
+        <strong id="stageLabel">1 / 5</strong>
+      </div>
+    </header>
+
+    <section class="hint" id="hint" aria-live="polite">
+      화면을 드래그해 끊어진 길을 하나로 맞추세요.
+    </section>
+
+    <div class="status" id="status">길 끝이 화면에서 맞닿으면 공이 건너갑니다.</div>
+
+    <div class="controls">
+      <button id="resetButton" type="button">현재 단계 다시 시작</button>
+    </div>
+
+    <div class="completion" id="completion" hidden>
+      <div class="completion-card">
+        <p class="eyebrow">COMPLETE</p>
+        <h2>모든 길을 연결했습니다.</h2>
+        <p>현실에서는 끊어져 있어도, 화면 속에서는 하나의 길이 될 수 있습니다.</p>
+        <button id="againButton" type="button">처음부터 다시 하기</button>
+      </div>
+    </div>
+  </main>
+
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://cdn.jsdelivr.net/npm/three@0.179.1/build/three.module.js"
+    }
+  }
+  </script>
+  <script type="module" src="game.js"></script>
+</body>
+</html>
